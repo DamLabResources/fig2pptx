@@ -43,7 +43,7 @@ class PowerPointSlide(object):
 
 class PowerPointBox(object):
 
-    def __init__(self, mpl_object, parent=None, position=None):
+    def __init__(self, mpl_object, parent=None, pptx_corners=None):
         """
         Parameters
         ----------
@@ -55,14 +55,17 @@ class PowerPointBox(object):
 
         """
 
-        self.position = position
         self.parent = parent
         self.mpl_object = mpl_object
         self.children = []
+        self.position = None
+
+        self.pptx_corners = pptx_corners
 
         for child in mpl_object.get_children():
             cls = PowerPointBox.detect_type(child)
             self.children.append(cls(child, parent=self))
+
 
     def __iter__(self):
         """  Depth-first traversal
@@ -94,26 +97,27 @@ class PowerPointBox(object):
 
     @property
     def figure_position(self):
-        """In matplotlib (left, bottom, width, height) format"""
+        """In matplotlib corners format"""
         return None
 
     def slide_position(self):
         """In pptx (top, left, width, height) format using proper units!"""
-        if self.position is not None:
-            return self.position
+
+        return utils.corners_to_pptx(self.pptx_corners)
+
 
 
     def _render(self, slide):
 
-        if (self.parent is None) and (self.position is not None):
+        if self.parent is None:
             # This is the head figure object
             with NamedTemporaryFile(suffix='.png') as handle:
 
                 fig = self.mpl_object
                 fig.savefig(handle.name, dpi=300, transparent=True)
-                pic = slide.shapes.add_picture(handle.name, *self.position)
-
-
+                left, top, width, height = self.slide_position()
+                pic = slide.shapes.add_picture(handle.name, left, top,
+                                               height = height, width = width)
 
     def render(self, slide):
 
@@ -197,22 +201,19 @@ class TextBox(PowerPointBox):
 
     def slide_position(self):
 
-        nudge =  pptx.util.Inches(0.1)
+        nudge = pptx.util.Inches(0.15) # determined by inspection
 
         head = self.get_top_fig()
-        relative_pos = utils.corners_to_pptx(self.figure_position)
-        fig_position = head.slide_position()
-
         wi, hi = head.mpl_object.get_size_inches()
-        hi = pptx.util.Inches(hi)
-        wi = pptx.util.Inches(wi)
 
-        abs_left = fig_position[0] + wi*relative_pos[0]
-        abs_top = fig_position[1] + hi*(1-relative_pos[1]) - nudge
-        abs_width = wi*relative_pos[2]
-        abs_height = hi*relative_pos[3]
+        box_corners = self.figure_position
+        box_corners[:,0] *= wi
+        box_corners[:,1] *= hi
 
-        return abs_left, abs_top, abs_width, abs_height
+        slide_corners = utils.transform_corners(box_corners, ref_corners = head.pptx_corners)
+        slide_corners[:, 1] -= nudge
+
+        return utils.corners_to_pptx(slide_corners)
 
 
     def _render(self, slide):
@@ -230,7 +231,6 @@ class TextBox(PowerPointBox):
         if (len(self.mpl_object.get_text())>0) & (not self.mpl_object.stale):
 
             position = self.slide_position()
-            print(position, self.mpl_object.get_text())
             tbox = slide.shapes.add_textbox(*position)
             text_frame = tbox.text_frame
             text_frame.text = self.mpl_object.get_text()

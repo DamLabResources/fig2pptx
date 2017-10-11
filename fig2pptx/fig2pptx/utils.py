@@ -42,18 +42,47 @@ def pptx_to_bbox(left, top, width, height):
 
 def corners_to_pptx(corners):
 
-    top = corners[:,1].max()
+    top = corners[:,1].min()
     right = corners[:,0].max()
     left = corners[:,0].min()
-    bottom = corners[:,1].min()
+    bottom = corners[:,1].max()
 
-    height = top-bottom
+    height = bottom-top
     width = right-left
 
     return left, top, width, height
 
 
-def transform_point(mpl_point, ref_shape, unit = pptx.util.Inches):
+def transform_corners(mpl_corners, ref_corners = None, ref_shape = None):
+    """
+    Parameters
+    ----------
+    mpl_corners : np.array
+    ref_corners : np.array
+    ref_shape : np.array
+
+    Returns
+    -------
+    np.array
+
+    """
+
+    if (ref_shape is None) and (ref_corners is None):
+        raise ValueError('Must provide either a reference shape or reference corners')
+
+    if ref_shape is not None:
+        ref_corners = get_corners(ref_shape)
+
+    new_corners = []
+
+    for n in range(4):
+        new_corners.append(transform_point(mpl_corners[n, :], ref_corners))
+
+    return np.array(new_corners)
+
+
+
+def transform_point(mpl_point, ref_corners, unit = pptx.util.Inches):
     """
     Parameters
     ----------
@@ -65,8 +94,6 @@ def transform_point(mpl_point, ref_shape, unit = pptx.util.Inches):
 
     """
 
-
-    ref_corners = get_corners(ref_shape)
     left, bottom = ref_corners[:,0].min(), ref_corners[:,1].max()
 
     return np.array([left+unit(mpl_point[0]), bottom-unit(mpl_point[1])])
@@ -111,3 +138,39 @@ def find_textbox(slide, text = None, within = None):
         if isinstance(shape, pptx.shapes.autoshape.Shape):
             if (text is not None) & (shape.text == text):
                 return shape
+
+
+def make_blank_slide():
+    """ Makes new presentation with a single blank slide
+    """
+
+    prs = pptx.Presentation()
+    layout = prs.slide_layouts[6]
+    slide = prs.slides.add_slide(layout)
+    return prs, slide
+
+def determine_corners(fig, left_top):
+    """
+
+    Parameters
+    ----------
+    fig
+    left_top
+
+    Returns
+    -------
+
+    """
+
+    wi, hi = fig.get_size_inches()
+    hi = pptx.util.Inches(hi)
+    wi = pptx.util.Inches(wi)
+
+    left, top = left_top
+
+    c1 = (left, top)
+    c2 = (left, top + hi)
+    c3 = (left + wi, top)
+    c4 = (left + wi, top + hi)
+
+    return np.array([c1, c2, c3, c4])
